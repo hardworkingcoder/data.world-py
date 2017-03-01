@@ -27,14 +27,21 @@ from datadotworld._rest import UploadsApi
 from datadotworld.models import (DatasetCreateRequest, DatasetPatchRequest, DatasetPutRequest,
                                        DatasetSummaryResponse, SuccessMessage, FileBatchUpdateRequest,
                                        FileCreateOrUpdateRequest, FileSourceCreateOrUpdateRequest, Results)
-
+import requests
+import csv
+from io import StringIO
+import datapackage
+import zipfile
+import io
+import shutil
+import pandas as pd
 
 class DataDotWorld:
     """A Python Client for Accessing data.world"""
 
     def __init__(self, token=None, props_file="~/.data.world",
                  protocol="https",
-                 query_host="query.data.world", api_host="api.data.world"):
+                 query_host="query.data.world", api_host="api.data.world", download_host="download.data.world"):
 
         regex = re.compile(r"^token\s*=\s*(\S.*)$")
         filename = os.path.expanduser(props_file)
@@ -57,6 +64,7 @@ class DataDotWorld:
         self._uploads_api = UploadsApi(self._api_client)
 
         self._dataset_key_pattern = re.compile('[a-z0-9-]+/[a-z0-9-]+')  # Not the most comprehensive, for simplicity
+        self.downloadHost=download_host
 
     # Dataset Operations
 
@@ -368,3 +376,111 @@ class DataDotWorld:
                              '(i.e. user/dataset).')
         owner_id, dataset_id = dataset_key.split('/')
         return owner_id, dataset_id
+
+    class Dataset:
+        def __init__(self, dp):
+            self.dp = dp
+            self.table_names = [resource['name'] for resource in dp.descriptor['resources']]
+            self.tables = {resource.descriptor['name']: DataDotWorld.Table(resource) for resource in self.dp.resources}
+
+    class Table:
+        def __init__(self, resource):
+            self.resource = resource
+            resource_descriptor = self.resource.descriptor
+            self.table_dict = {"name": resource_descriptor["name"],
+                               "columns": {field['name']: field for field in resource_descriptor['schema']['fields']}}
+
+        def as_dataframe(self):
+            df = pd.DataFrame(self.resource.data)
+            for column in df.columns.values.tolist():
+                datapackage_type=self.table_dict['columns'][column]['type']
+                panda_type = DataDotWorld.Table.__convert_datapackage_type_to_panda_type(datapackage_type,
+                                                                                         df[column].dtype)
+                # print("{0} {1} {2}".format(column, datapackage_type , panda_type))
+                df[[column]] = df[[column]].astype(panda_type)
+            return df
+
+        @staticmethod
+        def __convert_datapackage_type_to_panda_type(type , defaul_type):
+            if type == 'number':
+                return float
+            elif type == 'string':
+                return str
+            elif type == 'integer':
+                return int
+            elif type == 'boolean':
+                return bool
+            else:
+                return defaul_type
+
+        def data_dict(self):
+            return self.table_dict
+
+    def download_dataset(self, dataset, overwrite=True):
+        from . import __version__
+        url = "{0}://{1}/datapackage/{2}".format(self.protocol, self.downloadHost, dataset)
+        headers = {
+            'User-Agent': 'data.world-py - {0}'.format(__version__),
+            'Authorization': 'Bearer {0}'.format(self.token)
+        }
+        slugified_dataset = dataset.replace("/", "-")
+
+        response = requests.get(url, headers=headers, stream=True)
+        tmp_dir = "tmp"
+        if response.status_code == 200:
+            if not os.path.exists(tmp_dir):
+                os.makedirs(tmp_dir)
+            z = zipfile.ZipFile(io.BytesIO(response.content))
+            # extract to tmp
+            z.extractall(path=tmp_dir)
+            data_dir = "{0}/{1}".format("data", dataset)
+            if os.path.exists(data_dir):
+                if overwrite:
+                    shutil.rmtree(data_dir)
+                    shutil.move("{0}/{1}".format(tmp_dir, slugified_dataset), data_dir)
+            else:
+                shutil.move("{0}/{1}".format(tmp_dir, slugified_dataset), data_dir)
+            dp = DataDotWorld.__get_datapackage(dataset)
+            return DataDotWorld.Dataset(dp)
+        else:
+            raise RuntimeError("error download dataset. {0}".format(response.status_code))
+
+    @staticmethod
+    def __get_datapackage_path(dataset):
+        cwd = os.getcwd()
+        path = os.path.join(cwd, "data", dataset, "datapackage.json")
+        if os.path.isfile(path):
+            return path
+        else:
+            raise RuntimeError("datapackage for {0} is not at {1}".format(dataset, path))
+
+    @staticmethod
+    def __get_datapackage(dataset):
+        datapackage_path = DataDotWorld.__get_datapackage_path(dataset)
+        dp = datapackage.DataPackage(datapackage_path)
+        return dp
+
+    # deprecated
+    def download_datapackage(self, dataset, overwrite=True):
+        return self.download_dataset(dataset, overwrite)
+
+    # deprecated
+    def list_tables(self, dataset):
+        dp = DataDotWorld.__get_datapackage(dataset)
+        return [resource['name'] for resource in dp.descriptor['resources']]
+
+    # deprecated
+    def load_table(self, dataset, table_name, limit=None):
+        dp = DataDotWorld.__get_datapackage(dataset)
+        return DataDotWorld.__load_table_from_datapackage(datapackage=dp, table_name=table_name, limit=limit)
+
+    @staticmethod
+    def __load_table_from_datapackage(datapackage, table_name, limit=None):
+        resource = next((x for x in datapackage.resources if x.descriptor['name'] == table_name), None)
+        if resource is None:
+            print("table {0} is not found".format(table_name))
+        else:
+            if limit is None:
+                return pd.DataFrame(resource.data)
+            else:
+                return pd.DataFrame(resource.data[0:limit])
