@@ -417,6 +417,33 @@ class DataDotWorld:
             return self.table_dict
 
     def download_dataset(self, dataset, overwrite=True):
+        """Download dataset
+
+        Parameters
+        ----------
+        dataset : str
+            Dataset identifier, in the form of owner/id
+        overwrite : optional boolean value
+            true => the function will pull the latest content and overwrite the existing local cache
+
+        Returns
+        -------
+        a Dataset object
+            an object contain actual data and meta data of all dataset's tabular file
+
+        Raises
+        ------
+        ApiException
+            If a server error occurs
+
+        Examples
+        --------
+        >>> intro_dataset = dw.download_dataset(dataset='jonloyens/an-intro-to-dataworld-dataset', overwrite=False)
+        >>> intro_dataset.table_names
+        ['anintrotodata.worlddatasetchangelog-sheet1', 'datadotworldbballstats', 'datadotworldbballteam']
+        >>> table = intro_dataset.tables['datadotworldbballteam']
+        >>> table = table.as_data_frame()
+        """
         from . import __version__
         url = "{0}://{1}/datapackage/{2}".format(self.protocol, self.downloadHost, dataset)
         headers = {
@@ -447,6 +474,24 @@ class DataDotWorld:
 
     @staticmethod
     def __get_datapackage_path(dataset):
+        """internal util method to get local filesystem path to the datapackage json file
+
+        Parameters
+        ----------
+        dataset : str
+            Dataset identifier, in the form of owner/id
+
+        Returns
+        -------
+        path
+            a local file path
+
+        Raises
+        ------
+        RuntimeError
+            if a dataset is invalid or a dataset has not been downloaded yet locally
+
+        """
         cwd = os.getcwd()
         path = os.path.join(cwd, "data", dataset, "datapackage.json")
         if os.path.isfile(path):
@@ -456,26 +501,138 @@ class DataDotWorld:
 
     @staticmethod
     def __get_datapackage(dataset):
+        """internal util method to get a DataPackage Object (http://frictionlessdata.io/data-packages/)
+
+        Parameters
+        ----------
+        dataset : str
+            Dataset identifier, in the form of owner/id
+
+        Returns
+        -------
+        a DataPackage object
+
+        Raises
+        ------
+        RuntimeError
+            if a dataset is invalid or a dataset has not been downloaded yet locally
+
+        """
         datapackage_path = DataDotWorld.__get_datapackage_path(dataset)
         dp = datapackage.DataPackage(datapackage_path)
         return dp
 
     # deprecated
     def download_datapackage(self, dataset, overwrite=True):
-        return self.download_dataset(dataset, overwrite)
+        """Download dataset - (@Deprecated - include to be backward compatible. Please use download_dataset instead)
+
+
+        Parameters
+        ----------
+        dataset : str
+            Dataset identifier, in the form of owner/id
+        overwrite : optional boolean value
+            true => the function will pull the latest content and overwrite the existing local cache
+
+        Returns
+        -------
+        SuccessMessage
+            an object contain actual data and meta data of all dataset's tabular file
+
+        Raises
+        ------
+        ApiException
+            If a server error occurs
+
+        Examples
+        --------
+        >>> intro_dataset = dw.download_datapackage(dataset='jonloyens/an-intro-to-dataworld-dataset', overwrite=False)
+        >>> intro_dataset.table_names
+        ['anintrotodata.worlddatasetchangelog-sheet1', 'datadotworldbballstats', 'datadotworldbballteam']
+        """
+        return self.download_datapackage(dataset, overwrite)
 
     # deprecated
     def list_tables(self, dataset):
+        """list all tables belonged to a dataset . @Deprecated : please use download_dataset's returned dataset object instead
+
+
+        Parameters
+        ----------
+        dataset : str
+            Dataset identifier, in the form of owner/id
+
+        Returns
+        -------
+        a list of table names
+
+        Raises
+        ------
+        RuntimeError
+            if a dataset is invalid or a dataset has not been downloaded yet locally
+
+        Examples
+        --------
+        >>> intro_dataset = dw.download_datapackage(dataset='jonloyens/an-intro-to-dataworld-dataset', overwrite=False)
+        >>> intro_dataset.list_tables
+        ['anintrotodata.worlddatasetchangelog-sheet1', 'datadotworldbballstats', 'datadotworldbballteam']
+        """
         dp = DataDotWorld.__get_datapackage(dataset)
         return [resource['name'] for resource in dp.descriptor['resources']]
 
     # deprecated
     def load_table(self, dataset, table_name, limit=None):
+        """load table into a panda dataframe - @Deprecated : please use download_dataset's returned dataset object instead
+
+
+        Parameters
+        ----------
+        dataset : str
+            Dataset identifier, in the form of owner/id
+        table_name : str
+            name of a table belonged in the dataset
+        limit : int - optional
+            how many rows included in the result set, default to None which mean all rows
+        Returns
+        -------
+        a panda dataframe
+            a dataframe containing the table 's data
+
+        Raises
+        ------
+        RuntimeError
+            if a dataset is invalid or a dataset has not been downloaded yet locally
+
+        Examples
+        --------
+        >>> intro_dataset = dw.download_datapackage(dataset='jonloyens/an-intro-to-dataworld-dataset', overwrite=False)
+        >>> df = dw.load_table('jonloyens/an-intro-to-dataworld-dataset' , 'datadotworldbballteam')
+        """
         dp = DataDotWorld.__get_datapackage(dataset)
         return DataDotWorld.__load_table_from_datapackage(datapackage=dp, table_name=table_name, limit=limit)
 
     @staticmethod
     def __load_table_from_datapackage(datapackage, table_name, limit=None):
+        """internal util method to load a table from a cached data package
+
+        Parameters
+        ----------
+        dataset : str
+            Dataset identifier, in the form of owner/id
+        table_name : str
+            name of a table belonged in the dataset
+        limit : int
+            how many rows included in the result set, default to None which mean all rows
+        Returns
+        -------
+        a DataPackage object
+
+        Raises
+        ------
+        RuntimeError
+            if a dataset is invalid or a dataset has not been downloaded yet locally
+
+        """
         resource = next((x for x in datapackage.resources if x.descriptor['name'] == table_name), None)
         if resource is None:
             print("table {0} is not found".format(table_name))
