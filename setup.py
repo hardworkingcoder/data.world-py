@@ -76,7 +76,7 @@ setup(
         'python-dateutil',
         'requests',
         'six',
-        'tabulator',
+        'tabulator>=0.15.1',
         'urllib3',
     ],
     setup_requires=[
@@ -88,12 +88,12 @@ setup(
         'responses',
         'pytest',
         'jsontableschema_pandas>=0.3.0,<1.0a',
-        'pandas<0.19a',
+        'pandas<0.20.1',
     ],
     extras_require={
         'PANDAS': [
             'jsontableschema_pandas>=0.3.0,<1.0a',
-            'pandas<0.19a',
+            'pandas<0.20.1',
         ],
     },
     entry_points={
