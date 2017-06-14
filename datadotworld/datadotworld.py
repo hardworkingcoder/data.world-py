@@ -206,6 +206,8 @@ def convert_to_sparql_literal(value):
     elif isinstance(value, numbers.Number):
         return "\"{}\"^^<http://www.w3.org/2001/XMLSchema#decimal>".format(
             value)
+    elif isinstance(value, set) and len(value) == 1 and isinstance(next(iter(value)), str):
+        return next(iter(value))
     else:
         return "\"{}\"".format(value)
 
